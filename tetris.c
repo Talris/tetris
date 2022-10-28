@@ -139,7 +139,6 @@ void print_score(int , int );
 void pause_mode(boundary *);
 void game_over();
 void save(const cell *, const lines *, const boundary *);
-void print_int(int n);
 void load_game(cell *, lines **, boundary *);
 void hide_cursor(int , int );
 void show_cursor(int , int );
@@ -148,6 +147,8 @@ void start_screen(boundary *, opt_select *);
 void select_handler(cell *, lines **, boundary *, opt_select *);
 // void print_occupied(lines *);
 // void fill(lines **, lines **, boundary *);
+void print_int(int n);
+void print_str(const char *s);
 
 void init(cell *s, lines **first, boundary *b) {	// lines **last, 
 	int row, col;
@@ -1303,6 +1304,7 @@ int main() {
 			speed -= 0.02;
 			move(10, 0);
 #ifdef DEBUG
+			move(10, 0);
 			printw("level = %d, speed = %lf", level, speed);
 #endif
 		}

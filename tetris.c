@@ -2,6 +2,16 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
+
+/*
+before compiling, change the macros SAVE_DIR_PATH and SAVE_FILE_NAME by 
+specifying the path to the directory where the save file (.txt) will be stored
+and the name of the save file (.txt) respectively
+*/
+#define SAVE_DIR_PATH "/home/talry/firstprog/PracticeC/tetris/"
+#define SAVE_FILE_NAME "test_save.txt"
+#define SAVE_PATH SAVE_DIR_PATH SAVE_FILE_NAME
 
 #define CPS CLOCKS_PER_SEC
 // #define SHAPE_LENGTH 4
@@ -12,8 +22,10 @@
 // #define PAUSE_Y 14
 // #define PAUSE_X 52
 // #define PAUSE_MSG_LEN 5
+#define PAUSE_MSG "Pause"
+#define GAME_OVER_MSG "Game over"
 #define GAME_OVER_OFFSET 2
-#define GAME_OVER_MSG_LEN 9
+// #define GAME_OVER_MSG_LEN 9
 #define GAME_NAME_LEN 6
 
 enum key_buttons { 
@@ -22,7 +34,7 @@ enum key_buttons {
 	key_pause = 27,		// <Escape>
 	key_new_game = 10, 	// <Enter>	
 	key_rotate = 32, 	// <Space>
-	key_save = 115
+	key_save = 115		// <s>
 };
 
 enum { pattern_length = 4, pattern_count = 7 };
@@ -88,10 +100,15 @@ typedef struct tag_lines {
 typedef struct tag_boundary {
 	int min_x, max_x, min_y, max_y;
 	int cur_pattern, next_pattern;
-	int is_failed, is_paused;
+	int is_failed, is_paused, is_start_screen;
 	int score;
 } boundary;
 
+typedef struct tag_opt_select {
+	int new_g, load_g;
+	int pressed_enter, save_is_existed;
+	int x, y;
+} opt_select;
 /*	нужна структура, которая будет хранить массив cell с координатами фигуры
 	и длинну этого массива length
 */
@@ -103,8 +120,8 @@ typedef struct tag_pattern {
 */
 
 void game_field(boundary *, int , int );
-void game_info();
-void create_pattern(cell *, boundary *);
+void game_info(boundary *);
+void generate_pattern(cell *, boundary *);
 int find_next_pattern();
 void show_next_pattern(boundary *, int );
 void check_boundary_rotate(cell *, boundary *);
@@ -119,15 +136,25 @@ int check_line();
 void destroy_line(lines **, int );
 int increase_score(int );
 void print_score(int , int );
+void pause_mode(boundary *);
+void game_over();
+void save(const cell *, const lines *, const boundary *);
+void print_int(int n);
+void load_game(cell *, lines **, boundary *);
+void hide_cursor(int , int );
+void show_cursor(int , int );
+void move_cursor(opt_select *);
+void start_screen(boundary *, opt_select *);
+void select_handler(cell *, lines **, boundary *, opt_select *);
 // void print_occupied(lines *);
-void fill(lines **, lines **, boundary *);
+// void fill(lines **, lines **, boundary *);
 
 void init(cell *s, lines **first, boundary *b) {	// lines **last, 
 	int row, col;
 	getmaxyx(stdscr, row, col);
 	
 	game_field(b, row, col);
-	game_info();
+	game_info(b);
 	b->is_paused = 0;
 	b->is_failed = 0;
 	b->cur_pattern = -1;
@@ -141,7 +168,7 @@ void init(cell *s, lines **first, boundary *b) {	// lines **last,
 		free(tmp);
 	}
 	
-	create_pattern(s, b);
+	generate_pattern(s, b);
 	
 	// find_next_pattern(&(b->next_pattern));
 	
@@ -180,7 +207,7 @@ void pattern_lib(cell *s, int n) {
 			s[0].x = x_1;	//	01
 			s[0].y = y_2;	//	**
 			s[1].x = x_2;	//	**
-			s[1].y = y_2;
+			s[1].y = y_2;	//	23
 			s[2].x = x_1;
 			s[2].y = y_3;
 			s[3].x = x_2;
@@ -189,15 +216,15 @@ void pattern_lib(cell *s, int n) {
 			
 		case pattern1:
 			s[0].x = x_1;	//	0*
-			s[0].y = y_1;	//	1**
-			s[1].x = x_1;	//	  *
+			s[0].y = y_1;	//	1**2
+			s[1].x = x_1;	//	  *3
 			s[1].y = y_2;
 			s[2].x = x_2;
 			s[2].y = y_2;
 			s[3].x = x_2;
 			s[3].y = y_3;
 			break;
-		case pattern2:
+		case pattern2:		//	 23
 			s[0].x = x_1;	//	 **
 			s[0].y = y_3;	//	**
 			s[1].x = x_2;	//	01
@@ -210,9 +237,9 @@ void pattern_lib(cell *s, int n) {
 			
 		case pattern3:
 			s[0].x = x_2;	//	  *0
-			s[0].y = y_1;	//	 **1
+			s[0].y = y_1;	//	2**1
 			s[1].x = x_2;	//	 *
-			s[1].y = y_2;
+			s[1].y = y_2;	//	 3
 			s[2].x = x_1;
 			s[2].y = y_2;
 			s[3].x = x_1;
@@ -222,7 +249,7 @@ void pattern_lib(cell *s, int n) {
 			s[0].x = x_1;	//	01
 			s[0].y = y_2;	//	**
 			s[1].x = x_2;	//	 **
-			s[1].y = y_2;
+			s[1].y = y_2;	//	 23
 			s[2].x = x_2;
 			s[2].y = y_3;
 			s[3].x = x_3;
@@ -232,15 +259,15 @@ void pattern_lib(cell *s, int n) {
 		case pattern5:
 			s[0].x = x_2;	//	 *0
 			s[0].y = y_0;	//	 *1
-			s[1].x = x_2;	//	 *
-			s[1].y = y_1;	//	 *
+			s[1].x = x_2;	//	 *2
+			s[1].y = y_1;	//	 *3
 			s[2].x = x_2;
 			s[2].y = y_2;
 			s[3].x = x_2;
 			s[3].y = y_3;
 			break;
 		case pattern6:
-			s[0].x = x_3;	//    10
+			s[0].x = x_3;	//	3210
 			s[0].y = y_3;	//	****
 			s[1].x = x_2;	
 			s[1].y = y_3;
@@ -253,17 +280,17 @@ void pattern_lib(cell *s, int n) {
 		case pattern7:
 			s[0].x = x_2;	//	 *0
 			s[0].y = y_1;	//	 *1
-			s[1].x = x_2;	//	**
-			s[1].y = y_2;
+			s[1].x = x_2;	//	**2
+			s[1].y = y_2;	//	3
 			s[2].x = x_2;
 			s[2].y = y_3;
 			s[3].x = x_1;
 			s[3].y = y_3;
 			break;
-		case pattern8:
+		case pattern8:		//	3
 			s[0].x = x_3;	//	*
 			s[0].y = y_3;	//	***
-			s[1].x = x_2;	//	 10
+			s[1].x = x_2;	//	210
 			s[1].y = y_3;
 			s[2].x = x_1;
 			s[2].y = y_3;
@@ -271,7 +298,7 @@ void pattern_lib(cell *s, int n) {
 			s[3].y = y_2;
 			break;
 		case pattern9:
-			s[0].x = x_1;	//	 **
+			s[0].x = x_1;	//	2**3
 			s[0].y = y_3;	//	1*
 			s[1].x = x_1;	//	0*
 			s[1].y = y_2;
@@ -281,9 +308,9 @@ void pattern_lib(cell *s, int n) {
 			s[3].y = y_1;
 			break;
 		case pattern10:
-			s[0].x = x_1;	//	01
+			s[0].x = x_1;	//	012
 			s[0].y = y_2;	//	***
-			s[1].x = x_2;	//	  *
+			s[1].x = x_2;	//	  *3
 			s[1].y = y_2;
 			s[2].x = x_3;
 			s[2].y = y_2;
@@ -294,7 +321,7 @@ void pattern_lib(cell *s, int n) {
 		case pattern11:
 			s[0].x = x_1;	//	0*
 			s[0].y = y_1;	//	1*
-			s[1].x = x_1;	//	 **
+			s[1].x = x_1;	//	2**3
 			s[1].y = y_2;
 			s[2].x = x_1;
 			s[2].y = y_3;
@@ -302,17 +329,17 @@ void pattern_lib(cell *s, int n) {
 			s[3].y = y_3;
 			break;
 		case pattern12:
-			s[0].x = x_3;	//	 10
+			s[0].x = x_3;	//	210
 			s[0].y = y_2;	//	***
 			s[1].x = x_2;	//	*
-			s[1].y = y_2;
+			s[1].y = y_2;	//	3
 			s[2].x = x_1;
 			s[2].y = y_2;
 			s[3].x = x_1;
 			s[3].y = y_3;
 			break;
-		case pattern13:
-			s[0].x = x_2;	//	**
+		case pattern13:		//	3
+			s[0].x = x_2;	//	**2
 			s[0].y = y_3;	// 	 *1
 			s[1].x = x_2;	// 	 *0
 			s[1].y = y_2;
@@ -322,9 +349,9 @@ void pattern_lib(cell *s, int n) {
 			s[3].y = y_1;
 			break;
 		case pattern14:
-			s[0].x = x_1;	//	  *
+			s[0].x = x_1;	//	  *3
 			s[0].y = y_3;	//	***
-			s[1].x = x_2;	//	01
+			s[1].x = x_2;	//	012
 			s[1].y = y_3;
 			s[2].x = x_3;
 			s[2].y = y_3;
@@ -383,7 +410,7 @@ int find_length(int n) {
 }
 */
 //создание новой фигуры
-void create_pattern(cell *s, boundary *b) {
+void generate_pattern(cell *s, boundary *b) {
 	if(b->cur_pattern != -1) {
 		b->cur_pattern = b->next_pattern;
 	} else {
@@ -522,6 +549,7 @@ void rotate(cell *s_cur, lines *first, boundary *b) {
 	pattern_lib(s_start, next_rotate);
 	// отображение повернутой фигуры на том же месте, где она находилась
 	// до вызова функции поворота
+	// the pattern rotated relative to cell[1]
 	for(i = 0; i < pattern_length; i++) {
 		arr[i].x = s_start[i].x - s_start[1].x + s_cur[1].x;
 		arr[i].y = s_start[i].y - s_start[1].y + s_cur[1].y;
@@ -672,7 +700,7 @@ void move_pattern(cell *s, lines **first, boundary *b, int dx, int dy) {
 				b->score += increase_score(num_lines);
 				print_score(b->min_x, b->score);
 			}
-			create_pattern(s, b);
+			generate_pattern(s, b);
 		}
 	}
 }
@@ -707,10 +735,11 @@ int check_left_right_mv(cell *s, lines *first, boundary *b, int dx, int dy) {
 		
 	return dx;
 }
-//проверка можно ли двигаться дальше вниз
-	/*  if can`t, than add cell coord of elements to list, that contains
-		occupied cells of game field
-	*/
+// check the ability to move down
+/*
+if it impossible, than add cell coord of pattern to list, that contains 
+occupied cells of game field
+*/
 int check_mv_down(cell *s, lines *first, boundary *b, int dx, int dy) {
 	int i;
 	lines *current;
@@ -816,7 +845,7 @@ void add_to_occupied(cell *s, lines **first) {	// , lines **last
 	}
 	*/
 
-// is line ready to be destroyed
+// is the line ready for destroying
 int check_line(lines *first, int n) {
 	//int i;
 	int occur = 0;
@@ -839,7 +868,6 @@ int check_line(lines *first, int n) {
 	return 0;
 }	
 
-//сгорание уровней
 void destroy_line(lines **first, int n) {	// , lines **last
 	lines *prev = NULL;
 	lines *current = *first;
@@ -982,7 +1010,7 @@ void pause_mode(boundary *b) {
 		b->is_paused = (b->is_paused) ? 0 : 1;
 		if(b->is_paused) {
 			move(pause_y, pause_x);
-			printw("Pause");
+			printw(PAUSE_MSG);
 		} else {
 			for(i = 0; i < pause_msg_len; i++) {
 				move(pause_y, pause_x + i);	
@@ -994,19 +1022,27 @@ void pause_mode(boundary *b) {
 
 void game_over() {
 	move(pause_y, pause_x - GAME_OVER_OFFSET);
-	printw("Game over");
+	printw(GAME_OVER_MSG);
+	move(pause_y + 2, pause_x - GAME_OVER_OFFSET);
+	printw("Press <Enter>");
 }
 
 void save(const cell *s, const lines *first, const boundary *b) {
+	if(b->is_failed)
+		return;	
 	/*
 		Create save_file if need
 	*/
 	int i, n;
 	FILE *f;
-	char *path = "/home/talry/firstprog/PracticeC/tetris/save.txt";
-	f = fopen(path, "w");
+	char *p = SAVE_PATH;
+#ifdef DEBUG
+	print_str(p);
+#endif
+	f = fopen(p, "w");
 	if(!f) {
 	}
+	n = fprintf(f, "%d\n", b->score);
 	n = fprintf(f, "%d\n", b->cur_pattern);
 	if(n < 0) {
 	}
@@ -1026,19 +1062,14 @@ void save(const cell *s, const lines *first, const boundary *b) {
 	
 }
 
-void print_test(int n) {
-	move(10, 3);
-	printw("%d", n);
-}
-
 void test_save(cell *s, lines *first, boundary *b) {
 	/*
 		Create save_file if need
 	*/
 	int i, n;
 	FILE *f;
-	char *path = "/home/talry/firstprog/PracticeC/tetris/test_save.txt";
-	f = fopen(path, "w");
+	const char *p = SAVE_PATH;
+	f = fopen(p, "w");
 	if(!f) {
 	}
 	n = fprintf(f, "%d\n", b->cur_pattern);
@@ -1062,13 +1093,19 @@ void test_save(cell *s, lines *first, boundary *b) {
 void load_game(cell *s, lines **first, boundary *b) {
 	int i, n, x, y;
 	FILE *f;
-	char *path = "/home/talry/firstprog/PracticeC/tetris/save.txt";
-	f = fopen(path, "r");
+	char *p = SAVE_PATH;
+#ifdef DEBUG
+	print_str(p);
+#endif
+	f = fopen(p, "r");
+	n = fscanf(f, "%d", &b->score);
 	n = fscanf(f, "%d", &b->cur_pattern);
 	for(i = 0; i < pattern_length; i++) {
 		n = fscanf(f, "%d, %d", &s[i].x, &s[i].y);
 	}
 	n = fscanf(f, "%d", &b->next_pattern);
+	b->is_paused = 0;
+	b->is_failed = 0;
 	// lines - add to end
 	lines *last = NULL;
 	n = 2;
@@ -1089,8 +1126,101 @@ void load_game(cell *s, lines **first, boundary *b) {
 			break;
 		}
 	}
-	test_save(s, *first, b);
+	// test_save(s, *first, b);
 	fclose(f);
+}
+void hide_cursor(int y, int x) {
+	move(y, x);
+	printw(" ");
+}
+void show_cursor(int y, int x) {
+	move(y, x);
+	printw(">");
+}
+
+#ifdef DEBUG
+void print_int(int n) {
+	move(0, 3);
+	printw("%d", n);
+}
+
+void print_str(const char *s) {
+	move(0, 0);
+	printw("%s", s);
+}
+#endif
+
+void move_cursor(opt_select *opt) {
+	if(opt->new_g) {
+		hide_cursor(opt->y, opt->x - 2);
+		show_cursor(opt->y + 2, opt->x - 2);
+		opt->new_g = 0;
+		opt->load_g = 1;
+	} else if (opt->load_g) {
+		hide_cursor(opt->y + 2, opt->x - 2);
+		show_cursor(opt->y, opt->x - 2);
+		opt->new_g = 1;
+		opt->load_g = 0;
+	}
+}
+
+void clean_screen(int row, int col) {
+	int i, j;
+	for(i = 0; i < row; i++) {
+		for(j = 0; j < col; j++) {
+			move(i, j);
+			printw(" ");
+		}
+	}
+}
+
+void start_screen(boundary *b, opt_select *opt) {
+	int row, col;
+	getmaxyx(stdscr, row, col);
+	clean_screen(row, col);
+
+	char *new_game = "New Game";
+	char *load_game = "Load Game";
+	opt->x = col / 2 - strlen(load_game) / 2;
+	opt->y = row / 2 - 1;
+
+	move(opt->y, opt->x);
+	printw("%s", new_game);
+	move(opt->y + 2, opt->x);
+	printw("%s", load_game); 
+
+	opt->pressed_enter = 0;
+	opt->new_g = 1;
+	opt->load_g = 0;
+	show_cursor(opt->y, opt->x - 2);
+}
+
+void load_game_error(opt_select *opt) {
+	move(opt->y + 4, opt->x + 2);
+	printw("There is no save file. Start new game");
+}
+// the function handle events in the start screen
+void select_handler(cell *s, lines **first, boundary *b, opt_select *opt) {
+	char *p = SAVE_PATH;
+	opt->save_is_existed = access(p, F_OK);
+	if(opt->new_g) {
+		opt->pressed_enter = 1;
+		init(s, first, b);
+	} else if (opt->save_is_existed == 0) {//(opt->load_g) {
+		opt->pressed_enter = 1;
+		int row, col;
+		getmaxyx(stdscr, row, col);
+		
+		game_field(b, row, col);
+		game_info(b);
+		load_game(s, first, b);
+		print_score(b->min_x, b->score);
+		show_next_pattern(b, b->next_pattern);
+		show_hide_occupied(*first, '*');
+		show_hide_pattern(s, b, '*');
+	} else {
+		load_game_error(opt);
+	}
 }
 
 int main() {
@@ -1099,16 +1229,20 @@ int main() {
 	int run = 1;
 	double speed = 0.5;
 	int level = 1;
-	lines lns;
+	// lines lns;
 	cell s [pattern_length];
 	
 	boundary coord;
 	lines *first = NULL;
 	// lines *last = NULL;
-	
-	struct timespec sl;
+	coord.is_start_screen = 1;
+	opt_select opt;
+	struct timespec sl, sl1;
 	sl.tv_sec = 0;
 	sl.tv_nsec = 100000000;
+
+	sl1.tv_sec = 0;
+	sl1.tv_nsec = 3000000;
 	clock_t movt;
 	
 	
@@ -1123,17 +1257,54 @@ int main() {
 	srandom(time(NULL));
 	// getmaxyx(stdscr, row, col);
 	
-	init(s, &first, &coord);
-	
+	// init(s, &first, &coord);
+	// check if the save file exists
+
+	// char *p = SAVE_PATH;
+	// opt.save_is_existed = access(p, F_OK);
 	movt = clock();
 	
 	while(run) {
+		if(coord.is_start_screen) {
+			start_screen(&coord, &opt);
+		}
+		while(!opt.pressed_enter) {
+			coord.is_start_screen = 0;
+#ifdef DEBUG
+			print_int(opt.save_is_existed);
+#endif
+			key = getch();
+			switch(key) {
+				case KEY_DOWN:
+					move_cursor(&opt);
+					break;
+				case KEY_UP:
+					move_cursor(&opt);
+					break;
+				case key_exit1:
+					opt.pressed_enter = 1;
+					run = 0;
+					break;
+				case key_exit2:
+					opt.pressed_enter = 1;
+					run = 0;
+					break;
+				case key_new_game:
+					select_handler(s, &first, &coord, &opt);
+					break;
+			}
+			nanosleep(&sl1, NULL);
+			movt = clock();
+		}
+
 		key = getch();
 		if(coord.score / (level * 2000) > 0) {	// 15 000 or 20 000
 			level++;
 			speed -= 0.02;
 			move(10, 0);
+#ifdef DEBUG
 			printw("level = %d, speed = %lf", level, speed);
+#endif
 		}
 		if(coord.is_paused == 0) {
 			switch(key) {
@@ -1172,7 +1343,11 @@ int main() {
 				save(s, first, &coord);
 				break;
 			case key_new_game:
-				init(s, &first, &coord);
+				if(coord.is_paused || coord.is_failed)
+					coord.is_start_screen = 1;
+				/*else
+					init(s, &first, &coord);
+				*/
 				break;
 		}
 		if(!coord.is_failed) {
